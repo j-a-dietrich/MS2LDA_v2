@@ -231,9 +231,6 @@ def retrieve_SMARTS_pattern(index):
     return smartsPatts[index][0]
 
 
-###---------------------------for MS2 -------------------------------###
-
-
 def annotate_motifs(smiles_per_motif):
 
     maccs_per_motif = convert2maccs(smiles_per_motif)
@@ -241,7 +238,7 @@ def annotate_motifs(smiles_per_motif):
     purity_maccs = calculate_purity_score(overlaped_maccs, compounds_per_motif)
     smarts_per_motif = maccs_motif(purity_maccs)
     # make the maccs binary again !!!!
-    return smarts_per_motif
+    return smarts_per_motif, purity_maccs
 
 
 
