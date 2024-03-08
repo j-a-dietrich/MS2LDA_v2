@@ -3,6 +3,7 @@ from gensim.corpora import Dictionary
 
 import numpy as np
 from itertools import chain
+from operator import itemgetter
 
 from matchms.importing import load_from_mgf
 import matchms.filtering as msfilters
@@ -74,13 +75,15 @@ def frag_and_loss2word(spectra): #You should write some unittests for this funct
         frag_with_2_digits = [ [str(round(mz, 2))+"+"] for mz in spectrum.peaks.mz] # every fragment is in a list
         frag_multiplied_intensities = [frag * int(intensity) for frag, intensity in zip(frag_with_2_digits, intensities_from_0_to_100)]
         frag_flattend = list(chain(*frag_multiplied_intensities))
-        dataset_frag.append(frag_flattend)
 
-        loss_with_2_digits = [ [str(round(mz, 2))] for mz in spectrum.losses.mz] # every fragment is in a list
-        loss_multiplied_intensities = [loss * int(intensity) for loss, intensity in zip(loss_with_2_digits, intensities_from_0_to_100)]
-        loss_flattend = list(chain(*loss_multiplied_intensities))
-        loss_without_zeros = list(filter(lambda loss: float(loss) > 0.01, loss_flattend)) # removes 0 or negative loss values
-        dataset_loss.append(loss_without_zeros)
+        if frag_flattend not in dataset_frag: # if the exact peaks were already found the spectrum will be removed
+            dataset_frag.append(frag_flattend)
+
+            loss_with_2_digits = [ [str(round(mz, 2))] for mz in spectrum.losses.mz] # every fragment is in a list
+            loss_multiplied_intensities = [loss * int(intensity) for loss, intensity in zip(loss_with_2_digits, intensities_from_0_to_100)]
+            loss_flattend = list(chain(*loss_multiplied_intensities))
+            loss_without_zeros = list(filter(lambda loss: float(loss) > 0.01, loss_flattend)) # removes 0 or negative loss values
+            dataset_loss.append(loss_without_zeros)
 
     return dataset_frag, dataset_loss
 
@@ -179,11 +182,13 @@ def predict_with_lda(lda_model, spectra_path, id2dataset_frag_and_loss):
     # add smiles
     num_motifs = max([max(predicted_motif)[0] for predicted_motif in predicted_motifs]) + 1
     smiles_per_motifs = [list() for i in range(num_motifs)]
+    predicted_motifs_distribution = [list() for i in range(num_motifs)]
     for smiles, predicted_motif in zip(dataset_smiles, predicted_motifs):
-        most_likely_topic = max(predicted_motif)[0]
+        most_likely_topic = max(predicted_motif, key=itemgetter(1))[0]
         smiles_per_motifs[most_likely_topic].append(smiles)
+        predicted_motifs_distribution[most_likely_topic].append(predicted_motif)
 
-    return smiles_per_motifs, predicted_motifs
+    return smiles_per_motifs, predicted_motifs, predicted_motifs_distribution
 
 
 
