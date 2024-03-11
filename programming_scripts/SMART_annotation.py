@@ -55,21 +55,21 @@ def fps2motif(scaled_fps, threshold):
 
 def fps2smarts(fps_motif, fp_type):
     """returns substructures SMARTS pattern for overlaping bit in fingerprint for given fp"""
-    bit_indices = np.where(fps_motif == 1)[0]
+    one_indices = np.where(fps_motif == 1)[0]
     smarts = []
 
     if fp_type == FPType.MACCSFP:
         from fingerprints.MACCS import return_SMARTS
         
-        for bit_index in bit_indices:
-            maccs_smarts = return_SMARTS(bit_index)
+        for one_index in one_indices:
+            maccs_smarts = return_SMARTS(one_index)
             smarts.append(maccs_smarts)
 
     elif fp_type == FPType.KRFP:
         from fingerprints.klekota_roth import return_SMARTS
         
-        for bit_index in bit_indices:
-            maccs_smarts = return_SMARTS(bit_index)
+        for one_index in one_indices:
+            maccs_smarts = return_SMARTS(one_index)
             smarts.append(maccs_smarts)
     
     return smarts
@@ -81,7 +81,7 @@ def motifs2tanimotoScore(fps_motifs):
 
     motifs_index_combinations = combinations(range(len(fps_motifs)),2)
     for motif_A_index, motif_B_index in motifs_index_combinations:
-        print(motif_A_index, motif_B_index)
+        #print(motif_A_index, motif_B_index)
         intersection = 0
         union = 0
         for motif_A_bit, motif_B_bit in zip(fps_motifs[motif_A_index], fps_motifs[motif_B_index]):
