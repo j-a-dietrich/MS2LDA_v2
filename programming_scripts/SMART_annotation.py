@@ -51,14 +51,38 @@ def fps2motif(scaled_fps, threshold):
     return scaled_fps
 
 
+def fps2smarts(fps_motif, fp_type):
+    """returns substructures SMARTS pattern for overlaping bit in fingerprint for given fp"""
+    bit_indices = np.where(fps_motif == 1)[0]
+    smarts = []
+
+    if fp_type == FPType.MACCSFP:
+        from fingerprints.MACCS import return_SMARTS
+        
+        for bit_index in bit_indices:
+            maccs_smarts = return_SMARTS(bit_index)
+            smarts.append(maccs_smarts)
+
+    elif fp_type == FPType.KRFP:
+        from fingerprints.klekota_roth import return_SMARTS
+        
+        for bit_index in bit_indices:
+            maccs_smarts = return_SMARTS(bit_index)
+            smarts.append(maccs_smarts)
+    
+    return smarts
+
+
+
 def annotate_motifs(smiles_per_motif, fp_type=FPType.MACCSFP, threshold=0.8):
     """runs all the scripts to generate a selected fingerprint for a motif"""
     mols_per_motif = smiles2mols(smiles_per_motif)
     fps_per_motif = mols2fps(mols_per_motif, fp_type)
     scaled_fps = scale_fps(fps_per_motif)
     fps_motif = fps2motif(scaled_fps, threshold)
-   
-    return fps_motif
+    smarts_per_motif = fps2smarts(fps_motif, fp_type)
+
+    return fps_motif, smarts_per_motif
 
 
 
