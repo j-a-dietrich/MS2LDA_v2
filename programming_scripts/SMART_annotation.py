@@ -119,5 +119,5 @@ def annotate_motifs(smiles_per_motifs, fp_type=FPType.MACCSFP, threshold=0.8):
 
 if __name__ == "__main__":
 
-    smiles_per_motif = ["O=C(C)Oc1ccccc1C(=O)O", "COC(=O)C1CCC(C1)C(=O)O"]
-    fps_motif = annotate_motifs(smiles_per_motif, fp_type=FPType.SubFP)
+    smiles_per_motifs = [["O=C(C)Oc1ccccc1C(=O)O", "COC(=O)C1CCC(C1)C(=O)O"]]
+    fps_motif = annotate_motifs(smiles_per_motifs, fp_type=FPType.SubFP)

@@ -130,7 +130,7 @@ def generate_corpus(dataset_frag_and_loss, id2dataset_frag_and_loss=None):
     return corpus4dataset_frag_and_loss, id2dataset_frag_and_loss
 
 
-def run_lda(spectra_path, num_motifs, iterations=500, update_every=1):
+def run_lda(spectra_path, num_motifs, iterations=1000, update_every=1):
 
     spectra = load_mgf(spectra_path)
     cleaned_spectra = clean_spectra(spectra)
@@ -144,8 +144,10 @@ def run_lda(spectra_path, num_motifs, iterations=500, update_every=1):
                      random_state=73,
                      update_every=update_every,
                      iterations=iterations,
-                     #alpha=0.8,
-                     #eta=0.8,
+                     alpha="auto",
+                     eta="auto",
+                     decay=0.8,
+                     eval_every=1,
                      #gamma_threshold=0.8,
                      #minimum_probability=0.7,
                      #offset=0.8,
@@ -197,7 +199,7 @@ def predict_with_lda(lda_model, spectra_path, id2dataset_frag_and_loss):
         smiles_per_motifs[most_likely_topic].append(smiles)
         predicted_motifs_distribution[most_likely_topic].append(predicted_motif)
 
-    return smiles_per_motifs, predicted_motifs, predicted_motifs_distribution
+    return smiles_per_motifs, predicted_motifs, predicted_motifs_distribution, cleaned_spectra
 
 
 
