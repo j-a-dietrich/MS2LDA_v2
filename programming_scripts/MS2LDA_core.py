@@ -194,12 +194,15 @@ def predict_with_lda(lda_model, spectra_path, id2dataset_frag_and_loss):
     num_motifs = max([max(predicted_motif)[0] for predicted_motif in predicted_motifs]) + 1
     smiles_per_motifs = [list() for i in range(num_motifs)]
     predicted_motifs_distribution = [list() for i in range(num_motifs)]
-    for smiles, predicted_motif in zip(dataset_smiles, predicted_motifs):
+    spectra_per_motifs = [list() for i in range(num_motifs)]
+    for smiles, predicted_motif, cleaned_spectrum in zip(dataset_smiles, predicted_motifs, cleaned_spectra):
         most_likely_topic = max(predicted_motif, key=itemgetter(1))[0]
         smiles_per_motifs[most_likely_topic].append(smiles)
         predicted_motifs_distribution[most_likely_topic].append(predicted_motif)
+        spectra_per_motifs[most_likely_topic].append(cleaned_spectrum)
 
-    return smiles_per_motifs, predicted_motifs, predicted_motifs_distribution, cleaned_spectra
+
+    return smiles_per_motifs, predicted_motifs, predicted_motifs_distribution, spectra_per_motifs
 
 
 
