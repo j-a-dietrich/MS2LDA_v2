@@ -1,274 +1,123 @@
 from rdkit import Chem
 from rdkit.Chem import MACCSkeys
 from rdkit.Chem import rdFMCS
+
 import numpy as np
+from itertools import combinations
+
+from CDK_pywrapper import CDK, FPType
+import warnings
+
+# Only important to calculate descriptors and we are not doing that
+warnings.filterwarnings("ignore", message="Molecule lacks hydrogen atoms.*") 
 
 
-from rdkit.Chem import Draw
 
-
-def convert2maccs(smiles_per_motif):
-    """converts smiles to MACCSkey fingerprints"""
-    maccs_per_motif = []
+def smiles2mols(smiles_per_motif):
+    """convert smiles to rdkit mol object"""
+    mols = []
     for smiles in smiles_per_motif:
         mol = Chem.MolFromSmiles(smiles)
-        maccs = MACCSkeys.GenMACCSKeys(mol)
-        maccs_per_motif.append(maccs)
+        mols.append(mol)
 
-    return maccs_per_motif   
-
-def overlap_maccs(maccs_per_motif):
-    """defines the number of aligning SMARTS patterns pro number of compounds in the cluster"""
-    overlaped_maccs = np.zeros(167)
-    for maccs in maccs_per_motif:
-        bitString_maccs = np.array([int(bit) for bit in maccs.ToBitString()])
-        overlaped_maccs += bitString_maccs
-
-    return overlaped_maccs, len(maccs_per_motif) # the first entry is not a MACCSkey
-
-def calculate_purity_score(overlaped_maccs, compounds_per_motif):
-    """calculates the percentage of the presents of a substructure in a topic/motif"""
-    purity_maccs = overlaped_maccs / compounds_per_motif
-
-    return purity_maccs
+    return mols
 
 
-def maccs_motif(purity_maccs, purity_threshold=0.8):
+def mols2fps(mols_per_motif, fp_type):
+    """calculates the selected fingerprint for a given list of rdkit mol objects"""
+    fps_generator = CDK(fingerprint=fp_type)
+    fps = fps_generator.calculate(mols_per_motif, show_banner=False)
+
+    return fps
+
+
+def scale_fps(fps_per_motif):
+    """defines the number of aligning SMARTS patterns"""
+    cumulative_fps = fps_per_motif.sum().to_numpy()
+    scaled_fps = cumulative_fps/len(fps_per_motif.index)
+    # error with Nan if cluster is empty
+    return scaled_fps
+
+
+def fps2motif(scaled_fps, threshold):
     """overlaps fingerprints of compounds allocated to the same topic/motif"""
-    above_threshold_indices = np.where(purity_maccs > purity_threshold)[0]
-  
-    smarts_per_motif = []
-    for index in above_threshold_indices:
-        smarts = retrieve_SMARTS_pattern(index)
-        smarts_per_motif.append(smarts)
+    # above_threshold_indices = np.where(scaled_fps > threshold)[0] # useful for retrieval, but maybe you can do it in another function
+    # maybe you can use the masking also for the retrieveal of SMARTS patterns
 
-    return smarts_per_motif
+    lower_as_threshold = scaled_fps < threshold
+    higher_as_threshold = scaled_fps >= threshold
 
+    scaled_fps[lower_as_threshold] = 0
+    scaled_fps[higher_as_threshold] = 1
 
-def retrieve_SMARTS_pattern(index):
-    """returns a SMARTS pattern based on a given index"""
-
-    # from the rdkit repository
-    smartsPatts = {
-        1: ('?', 0),  # ISOTOPE
-        #2:('[#104,#105,#106,#107,#106,#109,#110,#111,#112]',0),  # atomic num >103 Not complete
-        2: ('[#104]', 0),  # limit the above def'n since the RDKit only accepts up to #104
-        3: ('[#32,#33,#34,#50,#51,#52,#82,#83,#84]', 0),  # Group IVa,Va,VIa Rows 4-6 
-        4: ('[Ac,Th,Pa,U,Np,Pu,Am,Cm,Bk,Cf,Es,Fm,Md,No,Lr]', 0),  # actinide
-        5: ('[Sc,Ti,Y,Zr,Hf]', 0),  # Group IIIB,IVB (Sc...)  
-        6: ('[La,Ce,Pr,Nd,Pm,Sm,Eu,Gd,Tb,Dy,Ho,Er,Tm,Yb,Lu]', 0),  # Lanthanide
-        7: ('[V,Cr,Mn,Nb,Mo,Tc,Ta,W,Re]', 0),  # Group VB,VIB,VIIB
-        8: ('[!#6;!#1]1~*~*~*~1', 0),  # QAAA@1
-        9: ('[Fe,Co,Ni,Ru,Rh,Pd,Os,Ir,Pt]', 0),  # Group VIII (Fe...)
-        10: ('[Be,Mg,Ca,Sr,Ba,Ra]', 0),  # Group IIa (Alkaline earth)
-        11: ('*1~*~*~*~1', 0),  # 4M Ring
-        12: ('[Cu,Zn,Ag,Cd,Au,Hg]', 0),  # Group IB,IIB (Cu..)
-        13: ('[#8]~[#7](~[#6])~[#6]', 0),  # ON(C)C
-        14: ('[#16]-[#16]', 0),  # S-S
-        15: ('[#8]~[#6](~[#8])~[#8]', 0),  # OC(O)O
-        16: ('[!#6;!#1]1~*~*~1', 0),  # QAA@1
-        17: ('[#6]#[#6]', 0),  #CTC
-        18: ('[#5,#13,#31,#49,#81]', 0),  # Group IIIA (B...) 
-        19: ('*1~*~*~*~*~*~*~1', 0),  # 7M Ring
-        20: ('[#14]', 0),  #Si
-        21: ('[#6]=[#6](~[!#6;!#1])~[!#6;!#1]', 0),  # C=C(Q)Q
-        22: ('*1~*~*~1', 0),  # 3M Ring
-        23: ('[#7]~[#6](~[#8])~[#8]', 0),  # NC(O)O
-        24: ('[#7]-[#8]', 0),  # N-O
-        25: ('[#7]~[#6](~[#7])~[#7]', 0),  # NC(N)N
-        26: ('[#6]=;@[#6](@*)@*', 0),  # C$=C($A)$A
-        27: ('[I]', 0),  # I
-        28: ('[!#6;!#1]~[CH2]~[!#6;!#1]', 0),  # QCH2Q
-        29: ('[#15]', 0),  # P
-        30: ('[#6]~[!#6;!#1](~[#6])(~[#6])~*', 0),  # CQ(C)(C)A
-        31: ('[!#6;!#1]~[F,Cl,Br,I]', 0),  # QX
-        32: ('[#6]~[#16]~[#7]', 0),  # CSN
-        33: ('[#7]~[#16]', 0),  # NS
-        34: ('[CH2]=*', 0),  # CH2=A
-        35: ('[Li,Na,K,Rb,Cs,Fr]', 0),  # Group IA (Alkali Metal)
-        36: ('[#16R]', 0),  # S Heterocycle
-        37: ('[#7]~[#6](~[#8])~[#7]', 0),  # NC(O)N
-        38: ('[#7]~[#6](~[#6])~[#7]', 0),  # NC(C)N
-        39: ('[#8]~[#16](~[#8])~[#8]', 0),  # OS(O)O
-        40: ('[#16]-[#8]', 0),  # S-O
-        41: ('[#6]#[#7]', 0),  # CTN
-        42: ('F', 0),  # F
-        43: ('[!#6;!#1;!H0]~*~[!#6;!#1;!H0]', 0),  # QHAQH
-        44: ('[!#1;!#6;!#7;!#8;!#9;!#14;!#15;!#16;!#17;!#35;!#53]', 0),  # OTHER
-        45: ('[#6]=[#6]~[#7]', 0),  # C=CN
-        46: ('Br', 0),  # BR
-        47: ('[#16]~*~[#7]', 0),  # SAN
-        48: ('[#8]~[!#6;!#1](~[#8])(~[#8])', 0),  # OQ(O)O
-        49: ('[!+0]', 0),  # CHARGE  
-        50: ('[#6]=[#6](~[#6])~[#6]', 0),  # C=C(C)C
-        51: ('[#6]~[#16]~[#8]', 0),  # CSO
-        52: ('[#7]~[#7]', 0),  # NN
-        53: ('[!#6;!#1;!H0]~*~*~*~[!#6;!#1;!H0]', 0),  # QHAAAQH
-        54: ('[!#6;!#1;!H0]~*~*~[!#6;!#1;!H0]', 0),  # QHAAQH
-        55: ('[#8]~[#16]~[#8]', 0),  #OSO
-        56: ('[#8]~[#7](~[#8])~[#6]', 0),  # ON(O)C
-        57: ('[#8R]', 0),  # O Heterocycle
-        58: ('[!#6;!#1]~[#16]~[!#6;!#1]', 0),  # QSQ
-        59: ('[#16]!:*:*', 0),  # Snot%A%A
-        60: ('[#16]=[#8]', 0),  # S=O
-        61: ('*~[#16](~*)~*', 0),  # AS(A)A
-        62: ('*@*!@*@*', 0),  # A$!A$A
-        63: ('[#7]=[#8]', 0),  # N=O
-        64: ('*@*!@[#16]', 0),  # A$A!S
-        65: ('c:n', 0),  # C%N
-        66: ('[#6]~[#6](~[#6])(~[#6])~*', 0),  # CC(C)(C)A
-        67: ('[!#6;!#1]~[#16]', 0),  # QS
-        68: ('[!#6;!#1;!H0]~[!#6;!#1;!H0]', 0),  # QHQH (&...) SPEC Incomplete
-        69: ('[!#6;!#1]~[!#6;!#1;!H0]', 0),  # QQH
-        70: ('[!#6;!#1]~[#7]~[!#6;!#1]', 0),  # QNQ
-        71: ('[#7]~[#8]', 0),  # NO
-        72: ('[#8]~*~*~[#8]', 0),  # OAAO
-        73: ('[#16]=*', 0),  # S=A
-        74: ('[CH3]~*~[CH3]', 0),  # CH3ACH3
-        75: ('*!@[#7]@*', 0),  # A!N$A
-        76: ('[#6]=[#6](~*)~*', 0),  # C=C(A)A
-        77: ('[#7]~*~[#7]', 0),  # NAN
-        78: ('[#6]=[#7]', 0),  # C=N
-        79: ('[#7]~*~*~[#7]', 0),  # NAAN
-        80: ('[#7]~*~*~*~[#7]', 0),  # NAAAN
-        81: ('[#16]~*(~*)~*', 0),  # SA(A)A
-        82: ('*~[CH2]~[!#6;!#1;!H0]', 0),  # ACH2QH
-        83: ('[!#6;!#1]1~*~*~*~*~1', 0),  # QAAAA@1
-        84: ('[NH2]', 0),  #NH2
-        85: ('[#6]~[#7](~[#6])~[#6]', 0),  # CN(C)C
-        86: ('[C;H2,H3][!#6;!#1][C;H2,H3]', 0),  # CH2QCH2
-        87: ('[F,Cl,Br,I]!@*@*', 0),  # X!A$A
-        88: ('[#16]', 0),  # S
-        89: ('[#8]~*~*~*~[#8]', 0),  # OAAAO
-        90:
-        ('[$([!#6;!#1;!H0]~*~*~[CH2]~*),$([!#6;!#1;!H0;R]1@[R]@[R]@[CH2;R]1),$([!#6;!#1;!H0]~[R]1@[R]@[CH2;R]1)]',
-        0),  # QHAACH2A
-        91:
-        ('[$([!#6;!#1;!H0]~*~*~*~[CH2]~*),$([!#6;!#1;!H0;R]1@[R]@[R]@[R]@[CH2;R]1),$([!#6;!#1;!H0]~[R]1@[R]@[R]@[CH2;R]1),$([!#6;!#1;!H0]~*~[R]1@[R]@[CH2;R]1)]',
-        0),  # QHAAACH2A
-        92: ('[#8]~[#6](~[#7])~[#6]', 0),  # OC(N)C
-        93: ('[!#6;!#1]~[CH3]', 0),  # QCH3
-        94: ('[!#6;!#1]~[#7]', 0),  # QN
-        95: ('[#7]~*~*~[#8]', 0),  # NAAO
-        96: ('*1~*~*~*~*~1', 0),  # 5 M ring
-        97: ('[#7]~*~*~*~[#8]', 0),  # NAAAO
-        98: ('[!#6;!#1]1~*~*~*~*~*~1', 0),  # QAAAAA@1
-        99: ('[#6]=[#6]', 0),  # C=C
-        100: ('*~[CH2]~[#7]', 0),  # ACH2N
-        101:
-        ('[$([R]@1@[R]@[R]@[R]@[R]@[R]@[R]@[R]1),$([R]@1@[R]@[R]@[R]@[R]@[R]@[R]@[R]@[R]1),$([R]@1@[R]@[R]@[R]@[R]@[R]@[R]@[R]@[R]@[R]1),$([R]@1@[R]@[R]@[R]@[R]@[R]@[R]@[R]@[R]@[R]@[R]1),$([R]@1@[R]@[R]@[R]@[R]@[R]@[R]@[R]@[R]@[R]@[R]@[R]1),$([R]@1@[R]@[R]@[R]@[R]@[R]@[R]@[R]@[R]@[R]@[R]@[R]@[R]1),$([R]@1@[R]@[R]@[R]@[R]@[R]@[R]@[R]@[R]@[R]@[R]@[R]@[R]@[R]1)]',
-        0),  # 8M Ring or larger. This only handles up to ring sizes of 14
-        102: ('[!#6;!#1]~[#8]', 0),  # QO
-        103: ('Cl', 0),  # CL
-        104: ('[!#6;!#1;!H0]~*~[CH2]~*', 0),  # QHACH2A
-        105: ('*@*(@*)@*', 0),  # A$A($A)$A
-        106: ('[!#6;!#1]~*(~[!#6;!#1])~[!#6;!#1]', 0),  # QA(Q)Q
-        107: ('[F,Cl,Br,I]~*(~*)~*', 0),  # XA(A)A
-        108: ('[CH3]~*~*~*~[CH2]~*', 0),  # CH3AAACH2A
-        109: ('*~[CH2]~[#8]', 0),  # ACH2O
-        110: ('[#7]~[#6]~[#8]', 0),  # NCO
-        111: ('[#7]~*~[CH2]~*', 0),  # NACH2A
-        112: ('*~*(~*)(~*)~*', 0),  # AA(A)(A)A
-        113: ('[#8]!:*:*', 0),  # Onot%A%A
-        114: ('[CH3]~[CH2]~*', 0),  # CH3CH2A
-        115: ('[CH3]~*~[CH2]~*', 0),  # CH3ACH2A
-        116: ('[$([CH3]~*~*~[CH2]~*),$([CH3]~*1~*~[CH2]1)]', 0),  # CH3AACH2A
-        117: ('[#7]~*~[#8]', 0),  # NAO
-        118: ('[$(*~[CH2]~[CH2]~*),$(*1~[CH2]~[CH2]1)]', 1),  # ACH2CH2A > 1
-        119: ('[#7]=*', 0),  # N=A
-        120: ('[!#6;R]', 1),  # Heterocyclic atom > 1 (&...) Spec Incomplete
-        121: ('[#7;R]', 0),  # N Heterocycle
-        122: ('*~[#7](~*)~*', 0),  # AN(A)A
-        123: ('[#8]~[#6]~[#8]', 0),  # OCO
-        124: ('[!#6;!#1]~[!#6;!#1]', 0),  # QQ
-        125: ('?', 0),  # Aromatic Ring > 1
-        126: ('*!@[#8]!@*', 0),  # A!O!A
-        127: ('*@*!@[#8]', 1),  # A$A!O > 1 (&...) Spec Incomplete
-        128:
-        ('[$(*~[CH2]~*~*~*~[CH2]~*),$([R]1@[CH2;R]@[R]@[R]@[R]@[CH2;R]1),$(*~[CH2]~[R]1@[R]@[R]@[CH2;R]1),$(*~[CH2]~*~[R]1@[R]@[CH2;R]1)]',
-        0),  # ACH2AAACH2A
-        129: ('[$(*~[CH2]~*~*~[CH2]~*),$([R]1@[CH2]@[R]@[R]@[CH2;R]1),$(*~[CH2]~[R]1@[R]@[CH2;R]1)]',
-                0),  # ACH2AACH2A
-        130: ('[!#6;!#1]~[!#6;!#1]', 1),  # QQ > 1 (&...)  Spec Incomplete
-        131: ('[!#6;!#1;!H0]', 1),  # QH > 1
-        132: ('[#8]~*~[CH2]~*', 0),  # OACH2A
-        133: ('*@*!@[#7]', 0),  # A$A!N
-        134: ('[F,Cl,Br,I]', 0),  # X (HALOGEN)
-        135: ('[#7]!:*:*', 0),  # Nnot%A%A
-        136: ('[#8]=*', 1),  # O=A>1 
-        137: ('[!C;!c;R]', 0),  # Heterocycle
-        138: ('[!#6;!#1]~[CH2]~*', 1),  # QCH2A>1 (&...) Spec Incomplete
-        139: ('[O;!H0]', 0),  # OH
-        140: ('[#8]', 3),  # O > 3 (&...) Spec Incomplete
-        141: ('[CH3]', 2),  # CH3 > 2  (&...) Spec Incomplete
-        142: ('[#7]', 1),  # N > 1
-        143: ('*@*!@[#8]', 0),  # A$A!O
-        144: ('*!:*:*!:*', 0),  # Anot%A%Anot%A
-        145: ('*1~*~*~*~*~*~1', 1),  # 6M ring > 1
-        146: ('[#8]', 2),  # O > 2
-        147: ('[$(*~[CH2]~[CH2]~*),$([R]1@[CH2;R]@[CH2;R]1)]', 0),  # ACH2CH2A
-        148: ('*~[!#6;!#1](~*)~*', 0),  # AQ(A)A
-        149: ('[C;H3,H4]', 1),  # CH3 > 1
-        150: ('*!@*@*!@*', 0),  # A!A$A!A
-        151: ('[#7;!H0]', 0),  # NH
-        152: ('[#8]~[#6](~[#6])~[#6]', 0),  # OC(C)C
-        153: ('[!#6;!#1]~[CH2]~*', 0),  # QCH2A
-        154: ('[#6]=[#8]', 0),  # C=O
-        155: ('*!@[CH2]!@*', 0),  # A!CH2!A
-        156: ('[#7]~*(~*)~*', 0),  # NA(A)A
-        157: ('[#6]-[#8]', 0),  # C-O
-        158: ('[#6]-[#7]', 0),  # C-N
-        159: ('[#8]', 1),  # O>1
-        160: ('[C;H3,H4]', 0),  #CH3
-        161: ('[#7]', 0),  # N
-        162: ('a', 0),  # Aromatic
-        163: ('*1~*~*~*~*~*~1', 0),  # 6M Ring
-        164: ('[#8]', 0),  # O
-        165: ('[R]', 0),  # Ring
-        166: ('?', 0),  # Fragments  FIX: this can't be done in SMARTS
-    }
-
-    return smartsPatts[index][0]
+    return scaled_fps
 
 
-def annotate_motifs(smiles_per_motif):
+def fps2smarts(fps_motif, fp_type):
+    """returns substructures SMARTS pattern for overlaping bit in fingerprint for given fp"""
+    one_indices = np.where(fps_motif == 1)[0]
+    smarts = []
 
-    maccs_per_motif = convert2maccs(smiles_per_motif)
-    overlaped_maccs, compounds_per_motif = overlap_maccs(maccs_per_motif)
-    purity_maccs = calculate_purity_score(overlaped_maccs, compounds_per_motif)
-    smarts_per_motif = maccs_motif(purity_maccs)
-    # make the maccs binary again !!!!
-    return smarts_per_motif, purity_maccs
+    if fp_type == FPType.MACCSFP:
+        from fingerprints.MACCS import return_SMARTS
+        
+        for one_index in one_indices:
+            maccs_smarts = return_SMARTS(one_index)
+            smarts.append(maccs_smarts)
+
+    elif fp_type == FPType.KRFP:
+        from fingerprints.klekota_roth import return_SMARTS
+        
+        for one_index in one_indices:
+            maccs_smarts = return_SMARTS(one_index)
+            smarts.append(maccs_smarts)
+    
+    return smarts
+
+
+def motifs2tanimotoScore(fps_motifs):
+    """tanimoto similarity for two given motifs"""
+    motifs_similarities = []
+
+    motifs_index_combinations = combinations(range(len(fps_motifs)),2)
+    for motif_A_index, motif_B_index in motifs_index_combinations:
+        #print(motif_A_index, motif_B_index)
+        intersection = 0
+        union = 0
+        for motif_A_bit, motif_B_bit in zip(fps_motifs[motif_A_index], fps_motifs[motif_B_index]):
+            if motif_A_bit == 1 and motif_B_bit == 1:
+                intersection += 1
+            if motif_A_bit == 1 or motif_B_bit == 1:
+                union += 1
+
+        motifs_similarity = intersection / union
+        motifs_similarities.append(motifs_similarity)
+
+    return motifs_similarities
 
 
 
+def annotate_motifs(smiles_per_motifs, fp_type=FPType.MACCSFP, threshold=0.8):
+    """runs all the scripts to generate a selected fingerprint for a motif"""
+    fps_motifs = []
+    smarts_per_motifs = []
+    for smiles_per_motif in smiles_per_motifs:
+        mols_per_motif = smiles2mols(smiles_per_motif)
+        fps_per_motif = mols2fps(mols_per_motif, fp_type)
+        scaled_fps = scale_fps(fps_per_motif)
+        fps_motif = fps2motif(scaled_fps, threshold)
+        smarts_per_motif = fps2smarts(fps_motif, fp_type)
 
+        fps_motifs.append(fps_motif)
+        smarts_per_motifs.append(smarts_per_motif)
 
-def find_mcs(smiles_per_motif):
-    """finds the maximum common substructure (MCS) for a given list of molecules"""
-    mols_per_motif = [Chem.MolFromSmiles(smiles) for smiles in smiles_per_motif]
-    mcs_for_motif = rdFMCS.FindMCS(mols_per_motif)
-    return mcs_for_motif
+    motifs_similarities = motifs2tanimotoScore(fps_motifs)
+
+    return fps_motifs, smarts_per_motifs, motifs_similarities
+
 
 
 if __name__ == "__main__":
 
-    smiles_per_motif = ["O=C(C)Oc1ccccc1C(=O)O", "COC(=O)C1CCC(C1)C(=O)O"]
-    # Aspirin and (1S,3R)-cis-3-(Methoxycarbonyl)cyclopentane-1-carboxylic acid
-    ## both share the same functional groups
-
-    ##mcs_for_motif = find_mcs(smiles_per_motif)
-    ##mcs_smarts = mcs_for_motif.smartsString
-    ##smarts_mol = Chem.MolFromSmarts(mcs_smarts)
-    ##print(smarts_mol)
-    ##Draw.MolToFile(smarts_mol, "test.png")
-
-    #maccs_per_motif = convert2maccs(smiles_per_motif)
-    #overlaped_maccs, compounds_per_motif = overlap_maccs(maccs_per_motif)
-    #print(overlaped_maccs)
-    #purity_maccs = calculate_purity_score(overlaped_maccs, compounds_per_motif)
-    #print(purity_maccs)
-    #smarts_per_motif = maccs_motif(purity_maccs)
-    #for i, smarts in enumerate(smarts_per_motif):
-    #    smarts_mol = Chem.MolFromSmarts(smarts)
-    #    Draw.MolToFile(smarts_mol, f"test_{str(i)}.png")
+    smiles_per_motifs = [["O=C(C)Oc1ccccc1C(=O)O", "COC(=O)C1CCC(C1)C(=O)O"]]
+    fps_motif = annotate_motifs(smiles_per_motifs, fp_type=FPType.SubFP)
