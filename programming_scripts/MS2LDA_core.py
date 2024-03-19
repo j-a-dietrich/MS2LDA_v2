@@ -8,6 +8,8 @@ from operator import itemgetter
 
 from matchms.importing import load_from_mgf
 import matchms.filtering as msfilters
+from matchms import Spectrum
+from matchms.Fragments import Fragments
 
 def load_mgf(spectra_path):
     """loads spectra from a mgf file
@@ -51,8 +53,14 @@ def clean_spectra(spectra):
         spectrum = msfilters.add_losses(spectrum)
 
         if spectrum:
-            spectrum.peaks.mz = [round(mz, 2) for mz in spectrum.peaks.mz]
-            cleaned_spectra.append(spectrum)
+            spectrum_binned = Spectrum(mz=np.array([round(mz_, 2) for mz_ in spectrum.peaks.mz]),
+                                intensities=spectrum.peaks.intensities,
+                                metadata=spectrum.metadata
+            ) # replaces peaks.mz with binned peaks.mz
+            spectrum_binned.losses = Fragments(mz=np.array([round(mz_, 2) for mz_ in spectrum.losses.mz if mz_ > 0.01]),
+                                               intensities=np.array([intensity for intensity, mz_ in zip(spectrum.losses.intensities, spectrum.losses.mz) if mz_ > 0.01])
+            ) # replaces losses.mz with binned losses.mz
+            cleaned_spectra.append(spectrum_binned)
 
     return cleaned_spectra
 
@@ -74,14 +82,14 @@ def frag_and_loss2word(spectra): #You should write some unittests for this funct
     for spectrum in spectra:
         intensities_from_0_to_100 = (spectrum.peaks.intensities * 100).round()
 
-        frag_with_2_digits = [ [str(round(mz, 2))+"+"] for mz in spectrum.peaks.mz] # every fragment is in a list
+        frag_with_2_digits = [ [str(round(mz, 2))+"+"] for mz in spectrum.peaks.mz] # every fragment is in a list; BINNING NOT NEEDED ANYMORE
         frag_multiplied_intensities = [frag * int(intensity) for frag, intensity in zip(frag_with_2_digits, intensities_from_0_to_100)]
         frag_flattend = list(chain(*frag_multiplied_intensities))
 
         if frag_flattend not in dataset_frag: # if the exact peaks were already found the spectrum will be removed
             dataset_frag.append(frag_flattend)
 
-            loss_with_2_digits = [ [str(round(mz, 2))] for mz in spectrum.losses.mz] # every fragment is in a list
+            loss_with_2_digits = [ [str(round(mz, 2))] for mz in spectrum.losses.mz] # every fragment is in a list; BINNING NOT NEEDED ANYMORE
             loss_multiplied_intensities = [loss * int(intensity) for loss, intensity in zip(loss_with_2_digits, intensities_from_0_to_100)]
             loss_flattend = list(chain(*loss_multiplied_intensities))
             loss_without_zeros = list(filter(lambda loss: float(loss) > 0.01, loss_flattend)) # removes 0 or negative loss values
