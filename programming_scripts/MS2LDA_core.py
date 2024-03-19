@@ -15,7 +15,7 @@ def load_mgf(spectra_path):
     ARGS:
         spectra_path (str): path to the spectra.mgf file
 
-    RETURNS:
+     :
         spectra (generator): matchms generator object with the loaded spectra
     """
 
