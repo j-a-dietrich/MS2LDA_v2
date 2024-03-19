@@ -51,6 +51,7 @@ def clean_spectra(spectra):
         spectrum = msfilters.add_losses(spectrum)
 
         if spectrum:
+            spectrum.peaks.mz = [round(mz, 2) for mz in spectrum.peaks.mz]
             cleaned_spectra.append(spectrum)
 
     return cleaned_spectra
@@ -130,7 +131,26 @@ def generate_corpus(dataset_frag_and_loss, id2dataset_frag_and_loss=None):
     return corpus4dataset_frag_and_loss, id2dataset_frag_and_loss
 
 
-def run_lda(spectra_path, num_motifs, iterations=1000, update_every=1):
+def run_lda(spectra_path, num_motifs, iterations=300, update_every=1):
+    """runs lda and needed scripts to clean and prepare data
+    - load mgf file
+    - clean spectra (matchms preprocessing)
+    - convert fragments and losses to words and integrate intensities
+    - combine fragments and losses in one document
+    - build corpus with fragments and losses document
+    - run LDA
+
+    ARGS:
+        spectra_path (str): path to the mgf file
+        num_motifs (int): number of motifs/topics for LDA algorithm
+        iterations (int): number of LDA iterations to find the right topic for a given document
+        update_every (int): see gensim doc
+
+    RETURNS:
+        lda_model (gensim.model): trained LDA model
+        corpus4dataset_frag_and_loss (list(tuples)): list of tuples where the first entry is the words id and the second the count per doc
+        id2dataset_frag_and_loss (dictionary): dictionary where each words gets a unique identifier
+    """
 
     spectra = load_mgf(spectra_path)
     cleaned_spectra = clean_spectra(spectra)
@@ -161,7 +181,14 @@ def run_lda(spectra_path, num_motifs, iterations=1000, update_every=1):
 
 
 def retrieve_smiles_from_spectra(cleaned_spectra):
-    """retrieves smiles from matchms ojects"""
+    """retrieves smiles from matchms ojects
+    
+    ARGS:
+        cleaned_spectra (list): list of matchms.Spectrum.objects after matchms preprocessing
+
+    RETURNS:
+        dataset_smiles (list(str)): a list of SMLIES retrieved from the matchms.spectrum.object metadata
+    """
     dataset_smiles = []
     for spectrum in cleaned_spectra:
         try:
@@ -174,13 +201,37 @@ def retrieve_smiles_from_spectra(cleaned_spectra):
 
 
 def predict_with_lda(lda_model, spectra_path, id2dataset_frag_and_loss):
+    """Uses a pretrained LDA model to assign spectra to earlier (from the pretrained LDA model) defined motifs and retrieve SMILES for assigned spectra; 
+    Therefore all cleaned steps as for the LDA training and SMILES are retrieved from the spectra
+    - load mgf file
+    - clean spectra (matchms preprocessing)
+    - retrieve SMILES form matchms.spectrum.object metadata
+    - convert fragments and losses to words and integrate intensities
+    - combine fragments and losses in one document
+    !- NO new corpus is build since the one from the given model is used
+    - predict motifs with given LDA model (currently to the most likely motif, means highest score)
 
+    ARGS:
+        lda_model (gensim.object): pretrained lda_model
+        spectra_path (str): path to the mgf file
+        id2dataset_frag_and_loss (dictionary): dictionary where each words gets a unique identifier
+
+    RETURNS:
+        smiles_per_motifs (list(list(str))): list of lists with SMILES per motif (all SMILES that belong to one motif)
+        predicted_motifs  (list(list(tuple))): list of lists of tuples with [0] predicted motif and [1] the certainty of the predicted motif
+        predicted_motifs_distribution (list(list(list(tuple)))): extend the predicted_motifs, so you can see all predicted motifs and not only the one with the highest score
+        spectra_per_motifs (list(list(matchms.spectrum.object))): list of lists of matchms.spectrum.objects per motifs (all spctra that belong to one motif)
+    
+    """
+
+    # preprocessing
     spectra = load_mgf(spectra_path)
     cleaned_spectra = clean_spectra(spectra)
     dataset_smiles = retrieve_smiles_from_spectra(cleaned_spectra)
     dataset_frag, dataset_loss = frag_and_loss2word(cleaned_spectra)
     dataset_frag_and_loss = combine_frag_loss(dataset_frag, dataset_loss)
 
+    # predict motifs
     predicted_motifs = []
     for spectrum_frag_and_loss in dataset_frag_and_loss:
         corpus4spectrum_frag_and_loss, _ = generate_corpus([spectrum_frag_and_loss], id2dataset_frag_and_loss=id2dataset_frag_and_loss)
@@ -196,10 +247,10 @@ def predict_with_lda(lda_model, spectra_path, id2dataset_frag_and_loss):
     predicted_motifs_distribution = [list() for i in range(num_motifs)]
     spectra_per_motifs = [list() for i in range(num_motifs)]
     for smiles, predicted_motif, cleaned_spectrum in zip(dataset_smiles, predicted_motifs, cleaned_spectra):
-        most_likely_topic = max(predicted_motif, key=itemgetter(1))[0]
-        smiles_per_motifs[most_likely_topic].append(smiles)
-        predicted_motifs_distribution[most_likely_topic].append(predicted_motif)
-        spectra_per_motifs[most_likely_topic].append(cleaned_spectrum)
+        most_likely_topic = max(predicted_motif, key=itemgetter(1))[0] # find the most likely topic
+        smiles_per_motifs[most_likely_topic].append(smiles) # append SMILES per motif
+        predicted_motifs_distribution[most_likely_topic].append(predicted_motif) # append motifs distribution per motif
+        spectra_per_motifs[most_likely_topic].append(cleaned_spectrum) # append cleaned spectra per motif
 
 
     return smiles_per_motifs, predicted_motifs, predicted_motifs_distribution, spectra_per_motifs
@@ -207,5 +258,6 @@ def predict_with_lda(lda_model, spectra_path, id2dataset_frag_and_loss):
 
 
 if __name__ == "__main__":
+    # test run
     spectra_path = r"C:\Users\dietr004\Documents\PhD\computational mass spectrometry\Spec2Struc\Project_SubformulaAnnotation\raw_data\_RAWdata1\GNPS-SCIEX-LIBRARY.mgf"
     run_lda(spectra_path, 12)
